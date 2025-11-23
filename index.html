@@ -4,9 +4,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>兩詞類別判斷實驗</title>
+  <title>兩詞語意分類實驗</title>
 
-  <!-- jsPsych -->
+  <!-- jsPsych CSS -->
   <link href="https://unpkg.com/jspsych@7.3.3/css/jspsych.css" rel="stylesheet">
 
   <style>
@@ -61,7 +61,7 @@
 <body>
   <div id="jspsych-target"></div>
 
-  <!-- jsPsych scripts -->
+  <!-- jsPsych Scripts -->
   <script src="https://unpkg.com/jspsych@7.3.3/dist/index.browser.js"></script>
   <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.1/dist/index.browser.js"></script>
 
@@ -73,18 +73,13 @@
     /* ---------------------------
        Firebase 初始化
     --------------------------- */
-    const firebaseConfig = {
+    firebase.initializeApp({
       apiKey: "AIzaSyA7hc22op7qsF462cEujepH8bS3TSTy4Xo",
       authDomain: "semantic-5ab52.firebaseapp.com",
-      projectId: "semantic-5ab52",
-      storageBucket: "semantic-5ab52.firebasestorage.app",
-      messagingSenderId: "673481471436",
-      appId: "1:673481471436:web:cbc96c9508656f92e39969",
-    };
+      projectId: "semantic-5ab52"
+    });
 
-    firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-
     const participant_id = "P" + Math.random().toString(36).substring(2, 10);
 
     /* ---------------------------
@@ -96,9 +91,9 @@
 
       on_finish: async () => {
 
-        /** ⛔ 原本的 filter(r => r.word1) 會把 trial 全部刪掉 */
+        // 抓所有真正的 trial（word1 有定義才是）
         const results = jsPsych.data.get().filterCustom(trial => {
-          return trial.word1 !== undefined;  // 有 word1 的 trial 才是正式資料
+          return trial.word1 !== undefined;
         }).values();
 
         await db.collection("two_word_category").doc(participant_id).set({
@@ -108,7 +103,7 @@
         });
 
         document.body.innerHTML = `
-          <h2 style="margin-top:200px;">實驗完成！資料已成功上傳。</h2>
+          <h2 style="margin-top:200px;">實驗完成！資料已成功上傳 ✔</h2>
         `;
       }
     });
@@ -129,36 +124,36 @@
     ];
 
     /* ---------------------------
-       trial 生成器
+       生成試題
     --------------------------- */
     function generateTrial() {
       const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
       const r = Math.random();
-      let w1, w2, relation_type, correct_answer;
+      let w1, w2, category, correct_answer;
 
       if (r < 0.33) {
         w1 = pick(fruit_words);
         w2 = pick(fruit_words);
-        relation_type = 1;        // 同類（水果）
+        category = 1; // 同類（水果）
         correct_answer = "f";
       } else if (r < 0.66) {
         w1 = pick(fruit_words);
         w2 = pick(nonFruit_words);
-        relation_type = 2;        // 類別不同
+        category = 2; // 異類
         correct_answer = "j";
       } else {
         w1 = pick(nonFruit_words);
         w2 = pick(nonFruit_words);
-        relation_type = 3;        // 同類（非水果）
+        category = 3; // 同類（非水果）
         correct_answer = "j";
       }
 
-      return { w1, w2, relation_type, correct_answer };
+      return { w1, w2, category, correct_answer };
     }
 
     /* ---------------------------
-       包裝 trial
+       建立一題 trial
     --------------------------- */
     function makeTwoWordTrial(item, phase) {
       return {
@@ -184,22 +179,22 @@
         on_load() {
           const start = performance.now();
 
-          const keyListener = e => {
+          const listener = e => {
             if (e.key.toLowerCase() === "f") endTrial("f");
             if (e.key.toLowerCase() === "j") endTrial("j");
           };
 
-          document.addEventListener("keydown", keyListener);
+          document.addEventListener("keydown", listener);
 
           function endTrial(resp) {
             const rt = performance.now() - start;
 
-            document.removeEventListener("keydown", keyListener);
+            document.removeEventListener("keydown", listener);
 
             jsPsych.finishTrial({
               word1: item.w1,
               word2: item.w2,
-              relation_type: item.relation_type,
+              category: item.category,
               subject_response: resp,
               correct_answer: item.correct_answer,
               correct: resp === item.correct_answer,
@@ -217,7 +212,6 @@
     /* ---------------------------
        Timeline
     --------------------------- */
-
     let timeline = [];
 
     timeline.push({
@@ -226,7 +220,7 @@
       stimulus: `
         <h2>實驗說明</h2>
         <p>下面會出現兩個詞，請判斷是否屬於同一類別。</p>
-        <p>目前的類別：只有「水果」。</p>
+        <p>目前類別：只有「水果」。</p>
         <br>
         <button class="custom-btn" id="start">開始練習</button>
       `,
@@ -243,7 +237,7 @@
       type: jsPsychHtmlKeyboardResponse,
       choices: "NO_KEYS",
       stimulus: `
-        <h3>練習完成，將開始正式測驗（50 題）。</h3>
+        <h3>練習完成，開始正式測驗（50 題）。</h3>
         <button class="custom-btn" id="go">開始正式測驗</button>
       `,
       on_load() {
@@ -260,3 +254,5 @@
 
 </body>
 </html>
+
+
