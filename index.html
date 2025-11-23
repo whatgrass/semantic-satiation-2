@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>實驗二：語意飽和（水果）</title>
+
+  <!-- jsPsych -->
+  <link href="https://unpkg.com/jspsych@7.3.3/css/jspsych.css" rel="stylesheet">
+
+  <style>
+    #jspsych-target {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      text-align: center;
+    }
+
+    .experiment-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 60px;
+    }
+
+    .stimulus-text {
+      font-size: 3rem;
+      font-weight: bold;
+    }
+
+    .button-row {
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+    }
+
+    .custom-btn {
+      padding: 18px 34px;
+      font-size: 1.6rem;
+      border-radius: 14px;
+      border: none;
+      background-color: #4CAF50;
+      color: white;
+      cursor: pointer;
+      min-width: 140px;
+      transition: 0.2s;
+    }
+
+    .custom-btn:hover {
+      background-color: #3f8d43;
+      transform: translateY(-2px);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="jspsych-target"></div>
+
+  <!-- jsPsych scripts -->
+  <script src="https://unpkg.com/jspsych@7.3.3/dist/index.browser.js"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.1/dist/index.browser.js"></script>
+
+  <!-- Firebase compat SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    /* Firebase 初始化 (semantic-5ab52) */
+    const firebaseConfig = {
+      apiKey: "AIzaSyA7hc22op7qsF462cEujepH8bS3TSTy4Xo",
+      authDomain: "semantic-5ab52.firebaseapp.com",
+      projectId: "semantic-5ab52",
+      storageBucket: "semantic-5ab52.firebasestorage.app",
+      messagingSenderId: "673481471436",
+      appId: "1:673481471436:web:cbc96c9508656f92e39969",
+      measurementId: "G-7CRN54L35Q"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const participant_id = "P" + Math.random().toString(36).substring(2, 10);
+
+    /* jsPsych 初始化 */
+    const jsPsych = initJsPsych({
+      display_element: "jspsych-target",
+      override_safe_mode: true,
+
+      on_finish: async () => {
+        const results = jsPsych.data.get().filter(r => r.word).values();
+
+        await db.collection("fruit_experiment").doc(participant_id).set({
+          participant: participant_id,
+          timestamp: new Date().toISOString(),
+          trials: results
+        });
+
+        document.body.innerHTML = `
+          <h2 style="margin-top:200px;">實驗完成！資料已成功上傳。</h2>
+        `;
+      }
+    });
+
+    /* 刺激詞 */
+    const fruit_words = [
+      "芭樂","藍莓","草莓","香蕉","蓮霧","蘋果","柚子","橘子","榴槤","奇異果",
+      "火龍果","葡萄柚","李子","水蜜桃","龍眼","荔枝","木瓜","鳳梨","西瓜","葡萄",
+      "櫻桃","哈密瓜","柿子","楊桃","釋迦","蔓越莓","棗子","水梨","芒果","百香果","香瓜"
+    ];
+
+    const distractor_words = [
+      "雨傘","火車","鯨魚","筷子","銀河","眼鏡","沙漏","密碼","棉花糖","齒輪",
+      "地震","茶壺","衣櫃","星座","烏龜","廚房","影子","橡皮擦","雪人","時鐘",
+      "錢包","城堡","電梯","口琴","雲朵","書籤","鉛筆","宇宙","冰箱","風箏"
+    ];
+
+    let all_words = [];
+    fruit_words.forEach(w => all_words.push({ word: w, category: "fruit" }));
+    distractor_words.forEach(w => all_words.push({ word: w, category: "nonfruit" }));
+
+    /* === RT 正確版 trial === */
+    function makeTrial(item, isPractice = false) {
+      return {
+        type: jsPsychHtmlKeyboardResponse,
+        choices: "NO_KEYS",
+
+        stimulus: `
+          <div class="experiment-container">
+            <div class="stimulus-text">${item.word}</div>
+
+            <div class="button-row">
+              <button class="custom-btn" id="yes">是</button>
+              <button class="custom-btn" id="no">不是</button>
+              <button class="custom-btn" id="unsure">不確定</button>
+            </div>
+          </div>
+        `,
+
+        on_load() {
+          // RT 計時開始
+          const start = performance.now();
+
+          function endTrial(resp) {
+            const rt = performance.now() - start;
+
+            jsPsych.finishTrial({
+              word: item.word,
+              category: item.category,
+              response: resp,
+              rt: rt,
+              phase: isPractice ? "practice" : "test",
+              correct:
+                (item.category === "fruit" && resp === "y") ||
+                (item.category === "nonfruit" && resp === "n")
+            });
+          }
+
+          // 按鈕
+          document.getElementById("yes").onclick    = () => endTrial("y");
+          document.getElementById("no").onclick     = () => endTrial("n");
+          document.getElementById("unsure").onclick = () => endTrial(" ");
+
+          // 鍵盤
+          document.addEventListener("keydown", (e) => {
+            if (e.key === "y") endTrial("y");
+            if (e.key === "n") endTrial("n");
+            if (e.code === "Space") endTrial(" ");
+          });
+        }
+      };
+    }
+
+    /* timeline */
+    let timeline = [];
+
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      choices: "NO_KEYS",
+      stimulus: `
+        <h2>實驗說明</h2>
+        <p>請判斷螢幕中央的詞語是否為水果。</p>
+        <p>手機請按按鈕；電腦可使用鍵盤 Y（是）/ N（不是）/ Space（不確定）</p>
+        <button class="custom-btn" id="start">開始練習</button>
+      `,
+      on_load() {
+        document.getElementById("start").onclick = () => jsPsych.finishTrial();
+      }
+    });
+
+    const practice = jsPsych.randomization.sampleWithoutReplacement(all_words, 5);
+    practice.forEach(item => timeline.push(makeTrial(item, true)));
+
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      choices: "NO_KEYS",
+      stimulus: `
+        <h3>練習完成，準備正式測驗（50 題）。</h3>
+        <button class="custom-btn" id="go">開始</button>
+      `,
+      on_load() {
+        document.getElementById("go").onclick = () => jsPsych.finishTrial();
+      }
+    });
+
+    const test = jsPsych.randomization.sampleWithoutReplacement(all_words, 50);
+    test.forEach(item => timeline.push(makeTrial(item, false)));
+
+    jsPsych.run(timeline);
+  </script>
+
+</body>
+</html>
