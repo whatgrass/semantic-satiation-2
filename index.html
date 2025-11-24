@@ -90,11 +90,7 @@
       override_safe_mode: true,
 
       on_finish: async () => {
-
-        // 抓所有真正的 trial（word1 有定義才是）
-        const results = jsPsych.data.get().filterCustom(trial => {
-          return trial.word1 !== undefined;
-        }).values();
+        const results = jsPsych.data.get().filter(r => r.word1).values();
 
         await db.collection("two_word_category").doc(participant_id).set({
           participant: participant_id,
@@ -124,9 +120,9 @@
     ];
 
     /* ---------------------------
-       生成試題
+       詞組生成（正式 & 練習共用）
     --------------------------- */
-    function generateTrial() {
+    function generatePair() {
       const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
       const r = Math.random();
@@ -135,27 +131,27 @@
       if (r < 0.33) {
         w1 = pick(fruit_words);
         w2 = pick(fruit_words);
-        category = 1; // 同類（水果）
+        category = 1; 
         correct_answer = "f";
       } else if (r < 0.66) {
         w1 = pick(fruit_words);
         w2 = pick(nonFruit_words);
-        category = 2; // 異類
+        category = 2; 
         correct_answer = "j";
       } else {
         w1 = pick(nonFruit_words);
         w2 = pick(nonFruit_words);
-        category = 3; // 同類（非水果）
-        correct_answer = "j";
+        category = 3; 
+        correct_answer = "f";
       }
 
       return { w1, w2, category, correct_answer };
     }
 
     /* ---------------------------
-       建立一題 trial
+       建立 trial
     --------------------------- */
-    function makeTwoWordTrial(item, phase) {
+    function makeTwoWordTrial(item, isPractice = false) {
       return {
         type: jsPsychHtmlKeyboardResponse,
         choices: "NO_KEYS",
@@ -172,7 +168,8 @@
               <button class="custom-btn" id="no">不同類</button>
             </div>
 
-            <p>(鍵盤：F=同類 / J=不同類)</p>
+            <p>(F=同類 / J=不同類)</p>
+            ${isPractice ? `<div id="feedback" style="font-size:3rem; height:60px;"></div>`: ""}
           </div>
         `,
 
@@ -183,76 +180,175 @@
             if (e.key.toLowerCase() === "f") endTrial("f");
             if (e.key.toLowerCase() === "j") endTrial("j");
           };
-
           document.addEventListener("keydown", listener);
 
           function endTrial(resp) {
-            const rt = performance.now() - start;
-
             document.removeEventListener("keydown", listener);
 
-            jsPsych.finishTrial({
-              word1: item.w1,
-              word2: item.w2,
-              category: item.category,
-              subject_response: resp,
-              correct_answer: item.correct_answer,
-              correct: resp === item.correct_answer,
-              rt: rt,
-              phase: phase
-            });
+            const rt = performance.now() - start;
+            const correct = resp === item.correct_answer;
+
+            if (isPractice) {
+              const fb = document.getElementById("feedback");
+              fb.textContent = correct ? "✔" : "✘";
+              fb.style.color = correct ? "#27ae60" : "#e74c3c";
+            }
+
+            setTimeout(() => {
+              jsPsych.finishTrial({
+                word1: item.w1,
+                word2: item.w2,
+                category: item.category,
+                subject_response: resp,
+                correct_answer: item.correct_answer,
+                correct: correct,
+                rt: rt,
+                phase: isPractice ? "practice" : "test"
+              });
+            }, isPractice ? 600 : 0);
           }
 
-          document.getElementById("yes").onclick = () => endTrial("f");
-          document.getElementById("no").onclick = () => endTrial("j");
+          yes.onclick = () => endTrial("f");
+          no.onclick = () => endTrial("j");
         }
       };
     }
 
     /* ---------------------------
-       Timeline
+       timeline
     --------------------------- */
     let timeline = [];
 
+    /* ---- 說明頁 ---- */
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
       choices: "NO_KEYS",
       stimulus: `
-        <h2>實驗說明</h2>
-        <p>下面會出現兩個詞，請判斷是否屬於同一類別。</p>
-        <p>目前類別：只有「水果」。</p>
-        <br>
-        <button class="custom-btn" id="start">開始練習</button>
+        <div class="experiment-container">
+          <h2>實驗說明</h2>
+          <p>畫面上會同時出現兩個詞，請判斷是否屬於同一類別。</p>
+          <p>目前類別：只有「水果」。</p>
+          <button class="custom-btn" id="start">開始練習</button>
+        </div>
       `,
       on_load() {
-        document.getElementById("start").onclick = () => jsPsych.finishTrial();
+        start.onclick = () => jsPsych.finishTrial();
       }
     });
 
-    for (let i = 0; i < 5; i++) {
-      timeline.push(makeTwoWordTrial(generateTrial(), "practice"));
-    }
+    /* ---------------------------
+       練習階段（比照單詞版）
+       → 一次取一串練習 pair
+       → 依序跑
+       → 達成 3 題連對即中止
+    --------------------------- */
+    const practice_list = Array.from({ length: 25 }, () => generatePair());
+    let practice_index = 0;
+    let practice_streak = 0;
 
+    timeline.push({
+      timeline: [{
+        type: jsPsychHtmlKeyboardResponse,
+        choices: "NO_KEYS",
+
+        stimulus: function () {
+          const item = practice_list[practice_index];
+          return `
+            <div class="experiment-container">
+              <div class="stimulus-pair">
+                <div>${item.w1}</div>
+                <div>${item.w2}</div>
+              </div>
+
+              <div class="button-row">
+                <button class="custom-btn" id="yes">同類</button>
+                <button class="custom-btn" id="no">不同類</button>
+              </div>
+
+              <p>(F=同類 / J=不同類)</p>
+              <div id="feedback" style="font-size:3rem; height:60px;"></div>
+            </div>
+          `;
+        },
+
+        on_load() {
+          const item = practice_list[practice_index];
+          const start = performance.now();
+
+          function endTrial(resp) {
+            const rt = performance.now() - start;
+            const correct = resp === item.correct_answer;
+
+            const fb = document.getElementById("feedback");
+            fb.textContent = correct ? "✔" : "✘";
+            fb.style.color = correct ? "#27ae60" : "#e74c3c";
+
+            setTimeout(() => {
+              jsPsych.finishTrial({
+                word1: item.w1,
+                word2: item.w2,
+                category: item.category,
+                subject_response: resp,
+                correct_answer: item.correct_answer,
+                correct: correct,
+                rt: rt,
+                phase: "practice"
+              });
+            }, 600);
+          }
+
+          yes.onclick = () => endTrial("f");
+          no.onclick = () => endTrial("j");
+
+          document.addEventListener("keydown", e => {
+            if (e.key.toLowerCase() === "f") endTrial("f");
+            if (e.key.toLowerCase() === "j") endTrial("j");
+          });
+        }
+      }],
+
+      loop_function: function (data) {
+        const last = data.values()[0];
+
+        if (last.correct) practice_streak++;
+        else practice_streak = 0;
+
+        practice_index++;
+
+        return practice_streak < 3 && practice_index < practice_list.length;
+      }
+    });
+
+    /* ---- 練習完成頁 ---- */
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
       choices: "NO_KEYS",
       stimulus: `
-        <h3>練習完成，開始正式測驗（50 題）。</h3>
-        <button class="custom-btn" id="go">開始正式測驗</button>
+        <div class="experiment-container">
+          <h3>你已連續答對 3 題！</h3>
+          <p>即將開始正式測驗。</p>
+          <button class="custom-btn" id="goTest">開始正式測驗</button>
+        </div>
       `,
       on_load() {
-        document.getElementById("go").onclick = () => jsPsych.finishTrial();
+        goTest.onclick = () => jsPsych.finishTrial();
       }
     });
 
+
+    /* ---------------------------
+       正式測驗（50 題）
+    --------------------------- */
     for (let i = 0; i < 50; i++) {
-      timeline.push(makeTwoWordTrial(generateTrial(), "test"));
+      timeline.push(makeTwoWordTrial(generatePair(), false));
     }
 
+    /* ---------------------------
+       Run
+    --------------------------- */
     jsPsych.run(timeline);
+
   </script>
 
 </body>
 </html>
-
-
